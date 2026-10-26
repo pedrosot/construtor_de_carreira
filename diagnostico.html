@@ -79,7 +79,7 @@ $('#go').onclick = async () => {
   $('#go').disabled = true; $('#out').innerHTML = ''; $('#sum').innerHTML = '';
   const notas = []; for (const k of ['cv', 'an', 'te', 'rq']) notas.push(await rodar(k));
   const g = notas.includes('no') ? 'no' : notas.includes('wa') ? 'wa' : 'ok';
-  $('#sum').innerHTML = `<div class="sum ${g}">${{ ok: 'Tudo certo: a IA configurada responde como o app espera.', wa: 'Funciona, com ressalvas. Veja os itens marcados com !.', no: 'Algo falhou. Veja os itens com ✗. Se a IA principal for o Gemini, coloque a chave do Claude e PROVEDOR=claude, e rode de novo.' }[g]}</div>`;
+  $('#sum').innerHTML = `<div class="sum ${g}">${{ ok: 'Tudo certo: a IA configurada responde como o app espera.', wa: 'Funciona, com ressalvas. Veja os itens marcados com !.', no: 'Algo falhou. Veja os itens com ✗. Erro 504 quer dizer que a resposta demorou mais que o limite da Vercel: confira se o vercel.json foi enviado junto e rode de novo. Erro 429 é o limite por minuto do plano grátis: espere um minuto.' }[g]}</div>`;
   $('#go').disabled = false;
 };
 fetch('/api/ia').then(r => r.json()).then(d => { const p = d.provedores || []; $('#cfg').textContent = p.length ? `IA principal: ${p[0]} (${d.modelos[0].default} e ${d.modelos[0].quick})${p[1] ? ' · reserva: ' + p[1] : ' · sem reserva'}${cod ? '' : ' · atenção: abra com ?codigo= no endereço'}` : 'Nenhuma chave configurada na Vercel.'; }).catch(() => { $('#cfg').textContent = 'Não consegui falar com o servidor.'; });
