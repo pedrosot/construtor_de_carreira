@@ -39,6 +39,7 @@ async function modelosGemini() {
   const pick = (lista, alias) => lista[0] || (nomes.includes(alias) ? alias : null) || alias;
   const def = fixo.default || pick(flash, 'gemini-flash-latest');
   gModelos = { default: def, quick: fixo.quick || (lite[0] || (nomes.includes('gemini-flash-lite-latest') ? 'gemini-flash-lite-latest' : def)), disponiveis: nomes.length };
+  gModelos.reservas = [...new Set([...flash, ...lite, ...nomes.filter(n => /^gemini-(flash|flash-lite)-latest$/.test(n))])].slice(0, 6);
   gModelosEm = Date.now();
   return gModelos;
 }
@@ -92,7 +93,16 @@ async function chamarGemini(prompt, tier, json, ate) {
   try { return await tentar(modelo, prazo()); }
   catch (e) {
     if (e.status === 404) { gModelos = null; const M2 = await modelosGemini(); if (M2.default !== modelo) return tentar(M2.default, resta() - 1500); }
-    if (e.status === 504 && tier === 'default' && M.quick !== modelo) return tentar(M.quick, resta() - 1500);
+    // modelo sobrecarregado (503/500) ou lento (504): passa pelos outros modelos Flash da chave, do mais novo ao mais leve
+    if ([500, 502, 503, 504].includes(e.status)) {
+      const fila = [...new Set([tier === 'default' ? M.quick : M.default, ...(M.reservas || [])])].filter(m => m && m !== modelo);
+      let ult = e;
+      for (const m of fila) {
+        if (resta() < 5000) break;
+        try { return await tentar(m, Math.min(30000, resta() - 1500)); } catch (x) { ult = x; if (![500, 502, 503, 504, 404, 429].includes(x.status)) break; }
+      }
+      throw ult;
+    }
     if (e.status === 429) { if (tier === 'quick' && M.default !== modelo) { try { return await tentar(M.default, resta() - 6000); } catch {} } await espera(4000); return tentar(modelo, resta() - 1500); }
     throw e;
   }
