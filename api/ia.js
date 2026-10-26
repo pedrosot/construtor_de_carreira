@@ -55,27 +55,45 @@ async function chamarClaude(prompt, tier, json) {
   return { text: (d.content || []).filter(c => c.type === 'text').map(c => c.text).join(''), modelo };
 }
 
-async function chamarGemini(prompt, tier, json) {
+/* Raciocínio interno ("thinking") deixa o Flash lento demais para o limite de tempo da Vercel.
+   Pede o mínimo de raciocínio; se o modelo não aceitar o parâmetro, tenta sem ele e lembra. */
+const semThinking = new Set();
+function thinkingDe(modelo) {
+  if (semThinking.has(modelo)) return null;
+  if (/gemini-2\.5/.test(modelo)) return /pro/.test(modelo) ? { thinkingBudget: 128 } : { thinkingBudget: 0 };
+  if (/gemini-[3-9]/.test(modelo) || /latest/.test(modelo)) return { thinkingLevel: 'low' };
+  return null;
+}
+async function chamarGemini(prompt, tier, json, ate) {
   const M = await modelosGemini();
-  const tentar = async modelo => {
-    const r = await fetch(`${GBASE}/models/${modelo}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: json ? { responseMimeType: 'application/json', temperature: 0.4 } : { temperature: 0.6 } })
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { const e = new Error('Gemini ' + r.status + ' (' + modelo + '): ' + JSON.stringify(d).slice(0, 300)); e.status = r.status; throw e; }
+  const resta = () => (ate || Date.now() + 50000) - Date.now();
+  const tentar = async (modelo, ms) => {
+    if (ms < 3000) { const e = new Error('sem tempo'); e.status = 504; throw e; }
+    const gc = json ? { responseMimeType: 'application/json', temperature: 0.4 } : { temperature: 0.6 };
+    const th = thinkingDe(modelo); if (th) gc.thinkingConfig = th;
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+    let r, d;
+    try {
+      r = await fetch(`${GBASE}/models/${modelo}:generateContent`, { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: gc }) });
+      d = await r.json().catch(() => ({}));
+    } catch (e) { const x = new Error('Gemini demorou demais (' + modelo + ')'); x.status = 504; throw x; }
+    finally { clearTimeout(t); }
+    if (!r.ok) {
+      if (r.status === 400 && th && /thinking/i.test(JSON.stringify(d))) { semThinking.add(modelo); return tentar(modelo, ms - 500); }
+      const e = new Error('Gemini ' + r.status + ' (' + modelo + '): ' + JSON.stringify(d).slice(0, 300)); e.status = r.status; throw e;
+    }
     const c = (d.candidates || [])[0] || {};
     if (c.finishReason === 'SAFETY' || (d.promptFeedback && d.promptFeedback.blockReason)) { const e = new Error('Gemini recusou o pedido'); e.status = 400; throw e; }
-    return { text: ((c.content || {}).parts || []).map(p => p.text || '').join(''), modelo };
+    return { text: ((c.content || {}).parts || []).filter(p => !p.thought).map(p => p.text || '').join(''), modelo };
   };
   const modelo = M[tier];
-  try { return await tentar(modelo); }
+  // No modelo principal, guarda tempo para cair no rápido se ele demorar.
+  const prazo = () => tier === 'default' && M.quick !== modelo ? Math.min(32000, resta() - 14000) : resta() - 1500;
+  try { return await tentar(modelo, prazo()); }
   catch (e) {
-    // modelo inexistente para esta chave: redescobre e tenta com o principal
-    if (e.status === 404) { gModelos = null; const M2 = await modelosGemini(); if (M2.default !== modelo) return tentar(M2.default); }
-    // limite por minuto do plano grátis: espera um pouco e tenta uma vez; no modelo rápido, cai para o principal (cota separada)
-    if (e.status === 429) { if (tier === 'quick' && M.default !== modelo) { try { return await tentar(M.default); } catch {} } await espera(4000); return tentar(modelo); }
+    if (e.status === 404) { gModelos = null; const M2 = await modelosGemini(); if (M2.default !== modelo) return tentar(M2.default, resta() - 1500); }
+    if (e.status === 504 && tier === 'default' && M.quick !== modelo) return tentar(M.quick, resta() - 1500);
+    if (e.status === 429) { if (tier === 'quick' && M.default !== modelo) { try { return await tentar(M.default, resta() - 6000); } catch {} } await espera(4000); return tentar(modelo, resta() - 1500); }
     throw e;
   }
 }
@@ -116,21 +134,23 @@ module.exports = async (req, res) => {
 
   // Tenta a IA principal; se a resposta vier vazia ou com JSON quebrado, repete uma vez; se falhar de novo, passa para a reserva.
   let ultimoErro = null, limitado = false;
+  const ate = Date.now() + Number(process.env.TEMPO_MAX || 52) * 1000; // margem dentro dos 60 s da Vercel
   for (const p of provs) {
     for (let tentativa = 0; tentativa < 2; tentativa++) {
+      if (ate - Date.now() < 6000) break;
       try {
         const extra = tentativa ? '\n\nIMPORTANTE: a resposta anterior veio fora do formato. Responda SOMENTE com um JSON válido, completo e fechado.' : '';
-        const out = await CHAMAR[p](prompt + extra, tier, json);
+        const out = await CHAMAR[p](prompt + extra, tier, json, ate);
         if (!out.text.trim()) throw new Error('resposta vazia');
         if (json && lerJSON(out.text) === undefined) throw new Error('JSON inválido');
         return res.status(200).json({ text: out.text, provedor: p, modelo: out.modelo, reserva: p !== provs[0], tentativas: tentativa + 1 });
       } catch (e) {
         ultimoErro = e; console.error(p, tentativa, e.message);
         if (e.status === 429) { limitado = true; break; }          // limite: não insiste, vai para a reserva
-        if (e.status && e.status < 500 && e.status !== 408) break; // erro de configuração: vai para a reserva
+        if (e.status === 504 || (e.status && e.status < 500 && e.status !== 408)) break; // demora ou configuração: vai para a reserva
       }
     }
   }
   if (limitado) return res.status(429).json({ erro: 'Limite de uso da IA atingido. Espere um pouco.' });
-  return res.status(502).json({ erro: 'A IA não respondeu. Tente de novo.', detalhe: String(ultimoErro && ultimoErro.message || '').slice(0, 200) });
+  return res.status(ultimoErro && ultimoErro.status === 504 ? 504 : 502).json({ erro: 'A IA não respondeu. Tente de novo.', detalhe: String(ultimoErro && ultimoErro.message || '').slice(0, 200) });
 };
