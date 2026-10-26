@@ -1,0 +1,11 @@
+{
+  "name": "Construtor de Carreira",
+  "short_name": "Carreira",
+  "description": "Mostre o que você sabe, não quem você conhece.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#3046D9",
+  "lang": "pt-BR",
+  "icons": [{ "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
