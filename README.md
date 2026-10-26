@@ -43,28 +43,9 @@ Plataforma mobile-first baseada em IA Generativa que atua como **Mentor de Empre
 
 ---
 
-## ⚙️ Guia de Instalação e Configuração
-
-Esta pasta põe o app no ar de graça, com a IA do Gemini rodando num servidor do projeto. Quem abre o link não precisa de conta em lugar nenhum.
-
-### Passo a passo (cerca de 15 minutos, grátis e sem cartão):
-1. **Chave do Gemini:** Entre em [Google AI Studio](https://aistudio.google.com) com uma conta Google, clique em **Get API key** > **Create API key** e copie a chave.
-2. **GitHub:** Crie um repositório, faça o upload de todos os arquivos (incluindo a pasta `api` com o `ia.js`) e clique em **Commit changes**.
-3. **Vercel:** Entre em [Vercel](https://vercel.com) com a conta do GitHub (plano Hobby, grátis), clique em **Add New… > Project** e importe o repositório.
-4. Antes de clicar em Deploy, abra **Environment Variables** e crie:
-   - `GEMINI_API_KEY` = sua chave do AI Studio
-   - `CODIGO_ACESSO` = uma palavra de segurança, ex.: `labai2026`
-5. Clique em **Deploy**. 
-6. **Diagnóstico:** Abra `https://SEU-ENDERECO.vercel.app/diagnostico.html?codigo=labai2026` e clique em **Rodar diagnóstico**.
-7. **Acesso ao App:** `https://SEU-ENDERECO.vercel.app/?codigo=labai2026`
-
----
-
 ## 📌 Bom saber
 
 - **Limites do Gemini Gratuito:** Há limite de requisições por minuto. O servidor gerencia esperas e *fallbacks* automáticos se necessário.
-
-- **Reserva opcional:** É possível configurar `ANTHROPIC_API_KEY` como redundância para o Claude.
 
 - **Privacidade e Segurança:** Protegido por código de acesso (`?codigo=`) e limite de requisições por IP. Dados salvos localmente no navegador do usuário.
 
