@@ -4,6 +4,8 @@
 
 Proposta desenvolvida para o **Hackathon LAB.AI 2026**.
 
+Link do MVP: https://construtordecarreira.vercel.app/?codigo=labai2026
+
 ---
 
 ## 📌 O Problema Social & A Dor
